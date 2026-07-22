@@ -22,6 +22,7 @@ import {
   createOptimisticIncident,
   fingerprintIncidentCommand,
   projectIncidentSnapshot,
+  rebaseIncidentCommand,
   type IncidentCommandEnvelope,
 } from './incident-outbox.js'
 import { incidentQueryKeys } from './incident-queries.js'
@@ -240,6 +241,27 @@ describe('incident optimistic projection', () => {
     expect(fingerprintIncidentCommand(resolveCommand)).toContain(
       'Queue recovered',
     )
+    expect(
+      rebaseIncidentCommand(
+        acknowledgeCommand,
+        4,
+        '1b83a92e-7541-4f9d-9ed9-0b881b32bb6e',
+      ),
+    ).toMatchObject({ expectedVersion: 4, type: 'acknowledge' })
+    expect(
+      rebaseIncidentCommand(
+        assignedCommand,
+        4,
+        '593b203e-ed66-48de-b67f-54f49f65fb0f',
+      ),
+    ).toMatchObject({ assignee: 'On-call operator', expectedVersion: 4 })
+    expect(
+      rebaseIncidentCommand(
+        resolveCommand,
+        8,
+        '74a6cdde-e553-4e59-8525-90ab33d2b784',
+      ),
+    ).toMatchObject({ expectedVersion: 8, resolutionNote: 'Queue recovered' })
   })
 })
 

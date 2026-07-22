@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { useCommandOutboxSnapshot } from '@react-resilience/command-outbox/react'
@@ -15,6 +15,7 @@ import {
   createOptimisticIncident,
   fingerprintIncidentCommand,
   projectIncidentSnapshot,
+  rebaseIncidentCommand,
   type IncidentOutboxEntry,
 } from './incident-outbox.js'
 import { incidentListQueryOptions } from './incident-queries.js'
@@ -150,6 +151,58 @@ export function IncidentConsole() {
     }
   }
 
+  const recoverCommand = async (
+    entry: IncidentOutboxEntry,
+    decision: 'discard' | 'retry',
+  ) => {
+    setQueueError(null)
+    setQueueingIncidentId(entry.partitionKey)
+
+    try {
+      if (decision === 'discard') {
+        await outbox.discard(entry.id)
+        return
+      }
+
+      const currentIncident = entry.failure?.context?.currentIncident
+      if (!currentIncident) {
+        throw new Error('The server version is unavailable for recovery')
+      }
+
+      const command = rebaseIncidentCommand(
+        entry.payload.command,
+        currentIncident.version,
+        globalThis.crypto.randomUUID(),
+      )
+      await outbox.enqueue({
+        fingerprint: fingerprintIncidentCommand(command),
+        id: command.commandId,
+        partitionKey: command.incidentId,
+        payload: {
+          command,
+          faultProfile,
+          optimisticIncident: createOptimisticIncident(
+            currentIncident,
+            command,
+            new Date(),
+          ),
+        },
+      })
+      await outbox.discard(entry.id)
+      await outbox.flush()
+    } catch (error) {
+      setQueueError({
+        error:
+          error instanceof Error
+            ? error
+            : new Error('Conflict recovery failed'),
+        incidentId: entry.partitionKey,
+      })
+    } finally {
+      setQueueingIncidentId(null)
+    }
+  }
+
   return (
     <div className="console-layout">
       <section className="incident-workspace" aria-labelledby="incidents-title">
@@ -204,12 +257,16 @@ export function IncidentConsole() {
             incidents={incidents}
             isStale={query.isPlaceholderData}
             onCommand={(incident, type) => void queueCommand(incident, type)}
+            onRecover={(entry, decision) =>
+              void recoverCommand(entry, decision)
+            }
             onSelect={setSelectedId}
             queueError={selectedQueueError}
             queueingIncidentId={queueingIncidentId}
             selectedEntry={selectedEntry}
             selectedIncident={selectedIncident}
             storageError={storageError}
+            useConflictProfile={faultProfile === 'conflict'}
           />
         )}
       </section>
@@ -257,7 +314,11 @@ export function IncidentConsole() {
           </div>
         ) : null}
 
-        <div className="outbox-card" aria-label="Command outbox status">
+        <div
+          aria-label="Command outbox status"
+          aria-live="polite"
+          className="outbox-card"
+        >
           <span>
             <strong>Command outbox</strong>
             <small>IndexedDB backed</small>
@@ -387,7 +448,7 @@ function QueryFailure({
         <strong>Incident stream unavailable</strong>
         <p>{detail}</p>
       </div>
-      <button onClick={onRetry} type="button">
+      <button autoFocus onClick={onRetry} type="button">
         Retry request
       </button>
     </div>
@@ -398,24 +459,28 @@ interface IncidentWorkspaceProps {
   incidents: Incident[]
   isStale: boolean
   onCommand: (incident: Incident, type: 'acknowledge' | 'assign') => void
+  onRecover: (entry: IncidentOutboxEntry, decision: 'discard' | 'retry') => void
   onSelect: (incidentId: string) => void
   queueError: Error | null
   queueingIncidentId: string | null
   selectedEntry: IncidentOutboxEntry | undefined
   selectedIncident: Incident | undefined
   storageError: Error | null
+  useConflictProfile: boolean
 }
 
 function IncidentWorkspace({
   incidents,
   isStale,
   onCommand,
+  onRecover,
   onSelect,
   queueError,
   queueingIncidentId,
   selectedEntry,
   selectedIncident,
   storageError,
+  useConflictProfile,
 }: IncidentWorkspaceProps) {
   return (
     <div className="incident-grid" data-stale={isStale}>
@@ -440,8 +505,10 @@ function IncidentWorkspace({
           incident={selectedIncident}
           isQueueing={queueingIncidentId === selectedIncident.id}
           onCommand={onCommand}
+          onRecover={onRecover}
           queueError={queueError}
           storageError={storageError}
+          useConflictProfile={useConflictProfile}
         />
       ) : (
         <aside className="incident-details empty-state">
@@ -493,8 +560,10 @@ interface IncidentDetailsProps {
   incident: Incident
   isQueueing: boolean
   onCommand: (incident: Incident, type: 'acknowledge' | 'assign') => void
+  onRecover: (entry: IncidentOutboxEntry, decision: 'discard' | 'retry') => void
   queueError: Error | null
   storageError: Error | null
+  useConflictProfile: boolean
 }
 
 function IncidentDetails({
@@ -502,9 +571,12 @@ function IncidentDetails({
   incident,
   isQueueing,
   onCommand,
+  onRecover,
   queueError,
   storageError,
+  useConflictProfile,
 }: IncidentDetailsProps) {
+  const recoveryRef = useRef<HTMLDivElement>(null)
   const commandPending = entry !== undefined || isQueueing
   const actionNote = getActionNote({
     entry,
@@ -512,6 +584,12 @@ function IncidentDetails({
     queueError,
     storageError,
   })
+
+  useEffect(() => {
+    if (entry?.status === 'blocked') {
+      recoveryRef.current?.focus()
+    }
+  }, [entry?.id, entry?.status])
 
   return (
     <aside
@@ -571,7 +649,70 @@ function IncidentDetails({
       <p className="action-note" role="status">
         {actionNote}
       </p>
+      {entry?.status === 'blocked' ? (
+        <CommandRecovery
+          entry={entry}
+          onRecover={onRecover}
+          recoveryRef={recoveryRef}
+          useConflictProfile={useConflictProfile}
+        />
+      ) : null}
     </aside>
+  )
+}
+
+interface CommandRecoveryProps {
+  entry: IncidentOutboxEntry
+  onRecover: (entry: IncidentOutboxEntry, decision: 'discard' | 'retry') => void
+  recoveryRef: RefObject<HTMLDivElement | null>
+  useConflictProfile: boolean
+}
+
+function CommandRecovery({
+  entry,
+  onRecover,
+  recoveryRef,
+  useConflictProfile,
+}: CommandRecoveryProps) {
+  const isConflict = entry.failure?.kind === 'conflict'
+  const currentVersion = entry.failure?.context?.currentIncident?.version
+
+  return (
+    <div
+      aria-labelledby="command-recovery-title"
+      className="command-recovery"
+      ref={recoveryRef}
+      role="alert"
+      tabIndex={-1}
+    >
+      <h3 id="command-recovery-title">
+        {isConflict ? 'Command needs a decision' : 'Command was rejected'}
+      </h3>
+      <p>
+        {isConflict
+          ? `The server is at version ${currentVersion ?? 'unknown'}. Keep that state or retry explicitly.`
+          : 'Keep the server state and remove this command from the outbox.'}
+      </p>
+      {isConflict && useConflictProfile ? (
+        <p className="recovery-hint">
+          Choose a non-conflict network profile before retrying.
+        </p>
+      ) : null}
+      <div>
+        {isConflict ? (
+          <button
+            disabled={useConflictProfile}
+            onClick={() => onRecover(entry, 'retry')}
+            type="button"
+          >
+            Retry on version {currentVersion ?? 'current'}
+          </button>
+        ) : null}
+        <button onClick={() => onRecover(entry, 'discard')} type="button">
+          Keep server version
+        </button>
+      </div>
+    </div>
   )
 }
 
