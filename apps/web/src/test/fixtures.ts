@@ -1,6 +1,6 @@
 import type { Incident } from '@react-resilience/contracts'
 
-export const sampleIncidents = [
+export const incidentFixtures = [
   {
     id: 'inc-1042',
     title: 'Checkout latency above threshold',
@@ -41,3 +41,5 @@ export const sampleIncidents = [
     updatedAt: '2026-07-22T06:41:00.000Z',
   },
 ] satisfies Incident[]
+
+export const generatedAt = '2026-07-22T09:00:00.000Z'
