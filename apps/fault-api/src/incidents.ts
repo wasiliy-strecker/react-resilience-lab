@@ -1,7 +1,4 @@
-import {
-  incidentListResponseSchema,
-  type Incident,
-} from '@react-resilience/contracts'
+import type { Incident } from '@react-resilience/contracts'
 
 const incidents = [
   {
@@ -47,11 +44,4 @@ const incidents = [
 
 export function createSeedIncidents(): Incident[] {
   return structuredClone(incidents)
-}
-
-export function createIncidentSnapshot(now: Date) {
-  return incidentListResponseSchema.parse({
-    items: createSeedIncidents(),
-    generatedAt: now.toISOString(),
-  })
 }
