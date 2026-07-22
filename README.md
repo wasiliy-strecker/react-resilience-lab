@@ -27,17 +27,20 @@ failure modes that appear in production:
 The repository isolates these behaviors in one small domain instead of hiding
 them inside an unrelated product.
 
-## Current foundation
+## Implemented behavior
 
-The first milestone establishes:
+The current API milestone establishes:
 
 - runtime-validated incident and command contracts with Zod
-- a deterministic Express API boundary and health endpoint
+- conditional writes through `If-Match` and explicit incident versions
+- idempotent command replay through `Idempotency-Key`
+- deterministic normal, slow, flaky, and conflict profiles
+- typed problem details for validation, conflicts, and transient failures
 - a responsive React incident console with a stable baseline profile
 - strict TypeScript, type-aware ESLint, coverage thresholds, and CI
 
-Fault injection, remote queries, mutation replay, and recovery semantics arrive
-in focused pull requests so their design remains reviewable.
+Remote queries, durable mutation replay, and client recovery semantics arrive in
+focused pull requests so their design remains reviewable.
 
 ## Quick start
 
@@ -58,14 +61,34 @@ Open `http://127.0.0.1:5173`. The supporting API listens on
 ```mermaid
 flowchart LR
     Browser[React incident console] --> Contracts[Shared runtime contracts]
-    Browser -. upcoming query and outbox adapters .-> API[Fault API]
+    Browser -. upcoming query and outbox adapters .-> API[Adversarial API]
     API --> Contracts
-    API --> Seed[Deterministic incident state]
+    API --> Faults[Deterministic fault injector]
+    API --> State[Versioned in-memory state]
 ```
 
 The contracts package owns transport shapes, not application behavior. The web
 application owns presentation and client orchestration. The API owns the
-authoritative incident state and later fault injection.
+authoritative incident state, command semantics, and fault injection.
+
+## Try the failure boundary
+
+Select behavior per request with `X-Lab-Fault-Profile`:
+
+```bash
+curl -i \
+  -H 'X-Lab-Fault-Profile: slow' \
+  http://127.0.0.1:3001/api/incidents
+```
+
+The response reports the applied profile and delay in
+`X-Lab-Fault-Profile` and `X-Lab-Delay-Ms`. The `flaky` profile rejects every
+third request with a typed `503` response. The `conflict` profile advances an
+incident immediately before a valid command is applied, producing a real
+version conflict rather than returning a hard-coded error.
+
+See [Failure model](docs/failure-model.md) for the profile matrix, command
+protocol, guarantees, and deliberate non-goals.
 
 ## Verification
 
