@@ -4,7 +4,8 @@ import { createApp } from './create-app.js'
 
 const port = Number.parseInt(process.env['PORT'] ?? '3001', 10)
 const host = process.env['HOST'] ?? '127.0.0.1'
-const server = createServer(createApp())
+const testResetToken = process.env['LAB_TEST_RESET_TOKEN']
+const server = createServer(createApp({ testResetToken }))
 
 server.listen(port, host, () => {
   process.stdout.write(`Fault API listening on http://${host}:${port}\n`)

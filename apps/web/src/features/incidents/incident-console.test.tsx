@@ -128,7 +128,9 @@ describe('IncidentConsole', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'The deterministic flaky profile rejected this attempt.',
     )
-    await user.click(screen.getByRole('button', { name: 'Retry request' }))
+    const retry = screen.getByRole('button', { name: 'Retry request' })
+    expect(retry).toHaveFocus()
+    await user.click(retry)
 
     expect(
       await screen.findByRole('button', {
@@ -312,25 +314,41 @@ describe('IncidentConsole', () => {
 
   it('shows authoritative state when a command is blocked by a conflict', async () => {
     const user = userEvent.setup()
+    let recoveryExpectedVersion: number | undefined
     server.use(
-      http.post('*/api/incidents/inc-1042/commands', () =>
-        HttpResponse.json(
-          {
-            type: 'https://react-resilience.dev/problems/version-conflict',
-            code: 'version-conflict',
-            title: 'Incident version changed',
-            status: 412,
-            detail: 'Reload the current incident before retrying this command.',
-            requestId: 'request-test-1',
-            currentIncident: {
-              ...incidentFixtures[0],
-              assignee: 'External operator',
-              version: 4,
+      http.post('*/api/incidents/inc-1042/commands', async ({ request }) => {
+        if (request.headers.get('x-lab-fault-profile') === 'conflict') {
+          return HttpResponse.json(
+            {
+              type: 'https://react-resilience.dev/problems/version-conflict',
+              code: 'version-conflict',
+              title: 'Incident version changed',
+              status: 412,
+              detail:
+                'Reload the current incident before retrying this command.',
+              requestId: 'request-test-1',
+              currentIncident: {
+                ...incidentFixtures[0],
+                assignee: 'External operator',
+                version: 4,
+              },
             },
+            { status: 412 },
+          )
+        }
+
+        const body = (await request.json()) as { expectedVersion?: number }
+        recoveryExpectedVersion = body.expectedVersion
+        return HttpResponse.json({
+          incident: {
+            ...incidentFixtures[0],
+            assignee: 'External operator',
+            status: 'acknowledged',
+            version: 5,
           },
-          { status: 412 },
-        ),
-      ),
+          replayed: false,
+        })
+      }),
     )
     const { outbox } = renderWithQueryClient(<IncidentConsole />, {
       createOutbox: (queryClient) =>
@@ -363,6 +381,75 @@ describe('IncidentConsole', () => {
         'A newer incident version blocked this command.',
       ),
     ).toBeInTheDocument()
+    const recovery = within(details).getByRole('alert')
+    expect(recovery).toHaveFocus()
+    expect(
+      within(recovery).getByRole('button', { name: 'Retry on version 4' }),
+    ).toBeDisabled()
+
+    await user.click(screen.getByRole('radio', { name: /^Normal/ }))
+    await user.click(
+      within(recovery).getByRole('button', { name: 'Retry on version 4' }),
+    )
+
+    await waitFor(() => {
+      expect(outbox.getSnapshot()).toEqual([])
+      expect(recoveryExpectedVersion).toBe(4)
+    })
+    expect(within(details).getByText('Version 5')).toBeInTheDocument()
+    expect(within(details).getByText('acknowledged')).toBeInTheDocument()
+  })
+
+  it('lets the operator discard a permanently rejected command', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.post('*/api/incidents/inc-1042/commands', () =>
+        HttpResponse.json(
+          {
+            type: 'https://react-resilience.dev/problems/invalid-transition',
+            code: 'invalid-transition',
+            title: 'Incident transition rejected',
+            status: 409,
+            detail: 'The command is no longer valid.',
+            requestId: 'request-test-1',
+            currentIncident: incidentFixtures[0],
+          },
+          { status: 409 },
+        ),
+      ),
+    )
+    const { outbox } = renderWithQueryClient(<IncidentConsole />, {
+      createOutbox: (queryClient) =>
+        createIncidentOutbox({
+          isOnline: () => true,
+          queryClient,
+          storage: new MemoryOutboxStorage<
+            IncidentCommandEnvelope,
+            ApiProblem
+          >(),
+        }),
+    })
+    await screen.findByRole('button', {
+      name: /Checkout latency above threshold/,
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Acknowledge' }))
+
+    const recovery = await screen.findByRole('alert')
+    expect(
+      within(recovery).getByText('Command was rejected'),
+    ).toBeInTheDocument()
+    expect(
+      within(recovery).queryByRole('button', { name: /Retry on version/ }),
+    ).not.toBeInTheDocument()
+    await user.click(
+      within(recovery).getByRole('button', { name: 'Keep server version' }),
+    )
+
+    await waitFor(() => {
+      expect(outbox.getSnapshot()).toEqual([])
+    })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('aborts a superseded filter request before stale data can win', async () => {

@@ -60,6 +60,35 @@ a:focus-visible {
   min-height: 100vh;
 }
 
+.app-failure {
+  display: grid;
+  width: min(640px, calc(100% - 2rem));
+  min-height: 100vh;
+  margin: 0 auto;
+  place-content: center;
+  justify-items: start;
+}
+
+.app-failure h1 {
+  margin-bottom: 1rem;
+}
+
+.app-failure > p:not(.eyebrow) {
+  max-width: 540px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.app-failure button {
+  padding: 0.7rem 0.9rem;
+  border: 1px solid rgb(101 231 187 / 55%);
+  border-radius: 9px;
+  color: var(--text);
+  background: rgb(101 231 187 / 10%);
+  cursor: pointer;
+  font-weight: 800;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -526,6 +555,58 @@ h2 {
 .action-note {
   margin: 0.7rem 0 0;
   font-size: 0.72rem;
+}
+
+.command-recovery {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid rgb(255 177 113 / 50%);
+  border-radius: 11px;
+  background: rgb(255 177 113 / 7%);
+}
+
+.command-recovery:focus {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.command-recovery h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.92rem;
+}
+
+.command-recovery p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.command-recovery .recovery-hint {
+  margin-top: 0.5rem;
+  color: #ffcf9e;
+}
+
+.command-recovery > div {
+  display: flex;
+  gap: 0.55rem;
+  margin-top: 0.8rem;
+}
+
+.command-recovery button {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface-soft);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 750;
+}
+
+.command-recovery button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
 }
 
 .empty-state {

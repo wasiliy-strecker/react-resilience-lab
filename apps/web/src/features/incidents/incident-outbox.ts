@@ -196,6 +196,21 @@ export function fingerprintIncidentCommand(command: IncidentCommand): string {
   }
 }
 
+export function rebaseIncidentCommand(
+  command: IncidentCommand,
+  expectedVersion: number,
+  commandId: string,
+): IncidentCommand {
+  switch (command.type) {
+    case 'acknowledge':
+      return { ...command, commandId, expectedVersion }
+    case 'assign':
+      return { ...command, commandId, expectedVersion }
+    case 'resolve':
+      return { ...command, commandId, expectedVersion }
+  }
+}
+
 function reconcileIncidentQueries(
   queryClient: QueryClient,
   incident: Incident,

@@ -71,11 +71,12 @@ reserve the key and can be corrected and retried.
 
 ## Deliberate non-goals
 
-This milestone does not claim durable or distributed idempotency. Incident
-state and replay records are lost when the Node.js process restarts, and multiple
-API processes do not coordinate. The lab also does not claim exactly-once
-delivery. A later client outbox will demonstrate at-least-once transport with
-idempotent handling, explicit conflict recovery, and honest crash boundaries.
+This API does not claim durable or distributed idempotency. Incident state and
+replay records are lost when the Node.js process restarts, and multiple API
+processes do not coordinate. The browser outbox therefore provides at-least-once
+transport with idempotent handling and version preconditions, not exactly-once
+delivery. Its crash boundaries and explicit conflict recovery are documented
+in [Command outbox semantics](outbox-semantics.md).
 
 The profiles are controlled experiments, not a general-purpose chaos platform.
 Random packet loss and infrastructure faults would make the core race and
