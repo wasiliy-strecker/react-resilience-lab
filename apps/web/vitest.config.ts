@@ -8,7 +8,7 @@ export default mergeConfig(
   defineConfig({
     test: {
       coverage: {
-        exclude: ['src/main.tsx', 'src/features/incidents/sample-incidents.ts'],
+        exclude: ['src/main.tsx', 'src/test/**'],
         provider: 'v8',
         reporter: ['text', 'lcov'],
         thresholds: {
@@ -19,6 +19,11 @@ export default mergeConfig(
         },
       },
       environment: 'jsdom',
+      environmentOptions: {
+        jsdom: {
+          url: 'http://localhost/',
+        },
+      },
       setupFiles: ['./src/test/setup.ts'],
     },
   }),
