@@ -12,6 +12,7 @@ const incidents = [
     severity: 'high',
     status: 'open',
     assignee: null,
+    resolutionNote: null,
     version: 3,
     detectedAt: '2026-07-22T08:12:00.000Z',
     updatedAt: '2026-07-22T08:16:00.000Z',
@@ -24,6 +25,7 @@ const incidents = [
     severity: 'medium',
     status: 'acknowledged',
     assignee: 'Mara Chen',
+    resolutionNote: null,
     version: 7,
     detectedAt: '2026-07-22T07:32:00.000Z',
     updatedAt: '2026-07-22T08:07:00.000Z',
@@ -36,15 +38,20 @@ const incidents = [
     severity: 'low',
     status: 'resolved',
     assignee: 'Noah Williams',
+    resolutionNote: 'Replica rebuild completed and lag returned to baseline.',
     version: 11,
     detectedAt: '2026-07-21T22:18:00.000Z',
     updatedAt: '2026-07-22T06:41:00.000Z',
   },
 ] satisfies Incident[]
 
+export function createSeedIncidents(): Incident[] {
+  return structuredClone(incidents)
+}
+
 export function createIncidentSnapshot(now: Date) {
   return incidentListResponseSchema.parse({
-    items: structuredClone(incidents),
+    items: createSeedIncidents(),
     generatedAt: now.toISOString(),
   })
 }

@@ -17,6 +17,7 @@ export const incidentSchema = z.object({
   severity: incidentSeveritySchema,
   status: incidentStatusSchema,
   assignee: z.string().min(1).nullable(),
+  resolutionNote: z.string().min(1).max(500).nullable(),
   version: z.number().int().positive(),
   detectedAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -64,10 +65,21 @@ export const faultProfileSchema = z.enum([
 
 export const apiProblemSchema = z.object({
   type: z.string().min(1),
+  code: z.enum([
+    'not-found',
+    'validation-failed',
+    'precondition-required',
+    'version-conflict',
+    'invalid-transition',
+    'idempotency-conflict',
+    'temporarily-unavailable',
+  ]),
   title: z.string().min(1),
   status: z.number().int().min(400).max(599),
   detail: z.string().min(1),
   requestId: z.string().min(1),
+  currentIncident: incidentSchema.optional(),
+  retryAfterMs: z.number().int().positive().optional(),
 })
 
 export type ApiProblem = z.infer<typeof apiProblemSchema>

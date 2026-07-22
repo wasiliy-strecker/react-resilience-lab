@@ -41,6 +41,7 @@ export function createApp(
   app.use((request, response) => {
     const problem = apiProblemSchema.parse({
       type: 'https://react-resilience.dev/problems/not-found',
+      code: 'not-found',
       title: 'Route not found',
       status: 404,
       detail: `No route is registered for ${request.method} ${request.path}.`,

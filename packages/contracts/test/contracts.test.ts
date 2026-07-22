@@ -14,6 +14,7 @@ const incident = {
   severity: 'high',
   status: 'open',
   assignee: null,
+  resolutionNote: null,
   version: 3,
   detectedAt: '2026-07-22T08:12:00.000Z',
   updatedAt: '2026-07-22T08:16:00.000Z',
@@ -48,6 +49,7 @@ describe('incident contracts', () => {
     expect(() =>
       apiProblemSchema.parse({
         type: 'https://react-resilience.dev/problems/unavailable',
+        code: 'temporarily-unavailable',
         title: 'Service unavailable',
         status: 503,
         detail: 'The fault profile rejected this request.',
