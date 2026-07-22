@@ -238,7 +238,7 @@ export function IncidentConsole() {
 
         <QueryStatus
           error={query.error}
-          hasData={query.data !== undefined}
+          hasData={query.data !== undefined || incidents.length > 0}
           isFetching={query.isFetching}
           isPending={query.isPending}
           isPlaceholderData={query.isPlaceholderData}
@@ -247,7 +247,9 @@ export function IncidentConsole() {
 
         {query.isPending ? (
           <InitialQueryState />
-        ) : query.isError && query.data === undefined ? (
+        ) : query.isError &&
+          query.data === undefined &&
+          incidents.length === 0 ? (
           <QueryFailure
             error={query.error}
             onRetry={() => void query.refetch()}

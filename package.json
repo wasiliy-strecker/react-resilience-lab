@@ -18,11 +18,16 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "test": "pnpm build:packages && pnpm --recursive --if-present test",
-    "typecheck": "pnpm build:packages && pnpm --recursive --if-present typecheck",
+    "test:e2e": "pnpm build:packages && playwright test",
+    "typecheck": "pnpm build:packages && pnpm --recursive --if-present typecheck && pnpm typecheck:e2e",
+    "typecheck:e2e": "tsc -p tsconfig.json --noEmit",
     "verify": "pnpm format:check && pnpm build:contracts && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
     "@eslint/js": "^9.39.2",
+    "@playwright/test": "1.61.0",
+    "@types/node": "22.20.1",
     "eslint": "^9.39.2",
     "eslint-plugin-react-hooks": "^6.1.1",
     "prettier": "^3.9.5",

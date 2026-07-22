@@ -272,6 +272,26 @@ describe('fault API command boundary', () => {
 
     expect(response.status).toBe(404)
   })
+
+  it('exposes a token-gated state reset only for browser tests', async () => {
+    const app = createApp({
+      ...dependencies,
+      testResetToken: 'e2e-reset-token',
+    })
+    await sendCommand(app, acknowledgeCommand)
+
+    const denied = await request(app)
+      .post('/__test/reset')
+      .set('x-test-reset-token', 'wrong-token')
+    const reset = await request(app)
+      .post('/__test/reset')
+      .set('x-test-reset-token', 'e2e-reset-token')
+    const incident = await request(app).get('/api/incidents/inc-1042')
+
+    expect(denied.status).toBe(404)
+    expect(reset.status).toBe(204)
+    expect(incidentSchema.parse(incident.body).version).toBe(3)
+  })
 })
 
 function sendCommand(

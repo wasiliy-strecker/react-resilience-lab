@@ -27,6 +27,7 @@ export interface AppDependencies {
   now: () => Date
   requestId: () => string
   sleep: (delayMs: number) => Promise<void>
+  testResetToken: string | undefined
 }
 
 const defaultDependencies: Omit<AppDependencies, 'faultInjector'> = {
@@ -36,6 +37,7 @@ const defaultDependencies: Omit<AppDependencies, 'faultInjector'> = {
     new Promise((resolve) => {
       setTimeout(resolve, delayMs)
     }),
+  testResetToken: undefined,
 }
 
 export function createApp(
@@ -46,8 +48,8 @@ export function createApp(
     faultInjector: new DeterministicFaultInjector(),
     ...overrides,
   }
-  const store = new InMemoryIncidentStore(createSeedIncidents())
-  const executor = new IncidentCommandExecutor(store)
+  let store = new InMemoryIncidentStore(createSeedIncidents())
+  let executor = new IncidentCommandExecutor(store)
   const app = express()
 
   app.disable('x-powered-by')
@@ -63,6 +65,28 @@ export function createApp(
   app.get('/health/live', (_request, response) => {
     response.status(200).json({ status: 'ok' })
   })
+
+  if (dependencies.testResetToken) {
+    app.post('/__test/reset', (request, response) => {
+      if (
+        request.header('x-test-reset-token') !== dependencies.testResetToken
+      ) {
+        sendProblem(response, {
+          type: 'https://react-resilience.dev/problems/not-found',
+          code: 'not-found',
+          title: 'Route not found',
+          status: 404,
+          detail: `No route is registered for ${request.method} ${request.path}.`,
+          requestId: getRequestId(request),
+        })
+        return
+      }
+
+      store = new InMemoryIncidentStore(createSeedIncidents())
+      executor = new IncidentCommandExecutor(store)
+      response.status(204).end()
+    })
+  }
 
   app.get('/api/incidents', async (request, response) => {
     const boundary = await enterFaultBoundary(
