@@ -29,7 +29,7 @@ them inside an unrelated product.
 
 ## Implemented behavior
 
-The current query milestone establishes:
+The current outbox milestone establishes:
 
 - runtime-validated incident and command contracts with Zod
 - conditional writes through `If-Match` and explicit incident versions
@@ -39,10 +39,13 @@ The current query milestone establishes:
 - a responsive React console driven by validated remote queries
 - `AbortSignal` propagation and query keys that isolate filters and profiles
 - explicit initial, background, stale-snapshot, empty, and error states
+- a reusable command-outbox package with memory and IndexedDB adapters
+- optimistic projections backed by persisted, idempotent commands
+- per-incident FIFO, transient retry, and isolated conflict states
 - strict TypeScript, type-aware ESLint, coverage thresholds, and CI
 
-Durable mutation replay and command recovery semantics arrive in focused pull
-requests so their design remains reviewable.
+Interactive conflict recovery and browser-level resilience proofs arrive in a
+focused pull request so their design remains reviewable.
 
 ## Quick start
 
@@ -65,6 +68,8 @@ flowchart LR
     Browser[React incident console] --> Contracts[Shared runtime contracts]
     Browser --> Query[TanStack Query boundary]
     Query --> API[Adversarial API]
+    Browser --> Outbox[Persistent command outbox]
+    Outbox --> API
     API --> Contracts
     API --> Faults[Deterministic fault injector]
     API --> State[Versioned in-memory state]
@@ -96,6 +101,9 @@ protocol, guarantees, and deliberate non-goals.
 See [Race-safe query lifecycle](docs/query-lifecycle.md) for cancellation,
 cache-key, runtime validation, and visible recovery decisions.
 
+See [Command outbox semantics](docs/outbox-semantics.md) for write-ahead
+persistence, FIFO partitions, retry behavior, crash boundaries, and guarantees.
+
 ## Verification
 
 ```bash
@@ -116,6 +124,7 @@ react-resilience-lab/
 │   ├── fault-api/       Deterministic Node.js API and fault boundary
 │   └── web/             React incident operations console
 ├── packages/
+│   ├── command-outbox/  Persistent queue core, adapters, and React bridge
 │   └── contracts/       Shared Zod schemas and inferred TypeScript types
 └── .github/workflows/   Reproducible CI verification
 ```
