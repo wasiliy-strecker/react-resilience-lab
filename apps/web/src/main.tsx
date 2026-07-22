@@ -5,6 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 
 import { App } from './app/app.js'
 import { createAppQueryClient } from './app/query-client.js'
+import { IncidentOutboxProvider } from './features/incidents/incident-outbox-context.js'
 import './styles.css'
 
 const rootElement = document.getElementById('root')
@@ -24,7 +25,9 @@ const queryClient = createAppQueryClient()
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <IncidentOutboxProvider>
+        <RouterProvider router={router} />
+      </IncidentOutboxProvider>
     </QueryClientProvider>
   </StrictMode>,
 )

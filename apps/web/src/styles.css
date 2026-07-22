@@ -509,6 +509,15 @@ h2 {
   font-weight: 750;
 }
 
+.details-actions button:not(:disabled) {
+  cursor: pointer;
+}
+
+.details-actions button:not(:disabled):hover {
+  border-color: rgb(101 231 187 / 55%);
+  background: rgb(101 231 187 / 10%);
+}
+
 .details-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.52;
@@ -623,6 +632,40 @@ h2 {
   background: rgb(101 231 187 / 10%);
   font-size: 0.8rem;
   font-weight: 850;
+}
+
+.outbox-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.45rem 0.8rem;
+  margin: 1.5rem 0;
+  padding: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-raised);
+}
+
+.outbox-card > span {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.outbox-card > span small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.outbox-card > strong {
+  color: var(--accent);
+  font-size: 1.4rem;
+}
+
+.outbox-card p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
 }
 
 .contract-note {

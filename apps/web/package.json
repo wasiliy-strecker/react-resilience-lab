@@ -13,6 +13,7 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
+    "@react-resilience/command-outbox": "workspace:*",
     "@react-resilience/contracts": "workspace:*",
     "@tanstack/react-query": "5.101.4",
     "react": "^19.2.7",

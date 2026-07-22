@@ -1,13 +1,22 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
+import { useCommandOutboxSnapshot } from '@react-resilience/command-outbox/react'
 import type {
   FaultProfile,
   Incident,
+  IncidentCommand,
   IncidentStatus,
 } from '@react-resilience/contracts'
 
 import { IncidentApiError, type StatusFilter } from './incident-api.js'
+import { useIncidentOutbox } from './incident-outbox-context.js'
+import {
+  createOptimisticIncident,
+  fingerprintIncidentCommand,
+  projectIncidentSnapshot,
+  type IncidentOutboxEntry,
+} from './incident-outbox.js'
 import { incidentListQueryOptions } from './incident-queries.js'
 
 const filters: Array<{ label: string; value: StatusFilter }> = [
@@ -60,13 +69,86 @@ export function IncidentConsole() {
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [faultProfile, setFaultProfile] = useState<FaultProfile>('normal')
   const [selectedId, setSelectedId] = useState('')
+  const [queueError, setQueueError] = useState<{
+    error: Error
+    incidentId: string
+  } | null>(null)
+  const [queueingIncidentId, setQueueingIncidentId] = useState<string | null>(
+    null,
+  )
+  const { outbox, storageError } = useIncidentOutbox()
+  const outboxEntries = useCommandOutboxSnapshot(outbox)
   const query = useQuery(incidentListQueryOptions(filter, faultProfile))
-  const incidents = query.data?.items ?? []
+  const incidents = projectIncidentSnapshot(
+    query.data?.items ?? [],
+    outboxEntries,
+    filter,
+  )
   const selectedIncident =
     incidents.find((incident) => incident.id === selectedId) ?? incidents[0]
+  const selectedEntry = selectedIncident
+    ? outboxEntries.find((entry) => entry.partitionKey === selectedIncident.id)
+    : undefined
+  const selectedQueueError =
+    queueError && queueError.incidentId === selectedIncident?.id
+      ? queueError.error
+      : null
   const activeProfile =
     faultProfiles.find((profile) => profile.value === faultProfile) ??
     faultProfiles[0]
+
+  const queueCommand = async (
+    incident: Incident,
+    type: 'acknowledge' | 'assign',
+  ) => {
+    setQueueError(null)
+    setQueueingIncidentId(incident.id)
+
+    const commandId = globalThis.crypto.randomUUID()
+    const command: IncidentCommand =
+      type === 'acknowledge'
+        ? {
+            commandId,
+            expectedVersion: incident.version,
+            incidentId: incident.id,
+            type,
+          }
+        : {
+            assignee: 'On-call operator',
+            commandId,
+            expectedVersion: incident.version,
+            incidentId: incident.id,
+            type,
+          }
+
+    try {
+      await outbox.enqueue({
+        fingerprint: fingerprintIncidentCommand(command),
+        id: command.commandId,
+        partitionKey: command.incidentId,
+        payload: {
+          command,
+          faultProfile,
+          optimisticIncident: createOptimisticIncident(
+            incident,
+            command,
+            new Date(),
+          ),
+        },
+      })
+      await outbox.flush()
+    } catch (error) {
+      setQueueError({
+        error:
+          error instanceof Error
+            ? error
+            : new Error('Command could not be queued'),
+        incidentId: incident.id,
+      })
+    } finally {
+      setQueueingIncidentId(null)
+    }
+  }
 
   return (
     <div className="console-layout">
@@ -80,7 +162,10 @@ export function IncidentConsole() {
               continue after connectivity returns.
             </p>
           </div>
-          <IncidentSummary incidents={incidents} />
+          <IncidentSummary
+            incidents={incidents}
+            queuedCount={outboxEntries.length}
+          />
         </div>
 
         <div className="filter-bar" aria-label="Filter incidents by status">
@@ -118,8 +203,13 @@ export function IncidentConsole() {
           <IncidentWorkspace
             incidents={incidents}
             isStale={query.isPlaceholderData}
+            onCommand={(incident, type) => void queueCommand(incident, type)}
             onSelect={setSelectedId}
+            queueError={selectedQueueError}
+            queueingIncidentId={queueingIncidentId}
+            selectedEntry={selectedEntry}
             selectedIncident={selectedIncident}
+            storageError={storageError}
           />
         )}
       </section>
@@ -167,11 +257,24 @@ export function IncidentConsole() {
           </div>
         ) : null}
 
+        <div className="outbox-card" aria-label="Command outbox status">
+          <span>
+            <strong>Command outbox</strong>
+            <small>IndexedDB backed</small>
+          </span>
+          <strong>{outboxEntries.length}</strong>
+          <p>
+            {outboxEntries.some((entry) => entry.status === 'blocked')
+              ? 'A conflict is isolated to its incident.'
+              : 'Queued changes survive a reload and replay in order.'}
+          </p>
+        </div>
+
         <div className="contract-note">
           <strong>Current contract</strong>
           <p>
-            Remote reads with shared runtime validation and explicit
-            cancellation.
+            Cancellable reads and idempotent versioned commands with persistent
+            replay.
           </p>
         </div>
       </aside>
@@ -179,7 +282,13 @@ export function IncidentConsole() {
   )
 }
 
-function IncidentSummary({ incidents }: { incidents: Incident[] }) {
+function IncidentSummary({
+  incidents,
+  queuedCount,
+}: {
+  incidents: Incident[]
+  queuedCount: number
+}) {
   const count = (status: IncidentStatus) =>
     incidents.filter((incident) => incident.status === status).length
 
@@ -195,7 +304,7 @@ function IncidentSummary({ incidents }: { incidents: Incident[] }) {
       </div>
       <div>
         <dt>Queued changes</dt>
-        <dd>0</dd>
+        <dd>{queuedCount}</dd>
       </div>
     </dl>
   )
@@ -288,15 +397,25 @@ function QueryFailure({
 interface IncidentWorkspaceProps {
   incidents: Incident[]
   isStale: boolean
+  onCommand: (incident: Incident, type: 'acknowledge' | 'assign') => void
   onSelect: (incidentId: string) => void
+  queueError: Error | null
+  queueingIncidentId: string | null
+  selectedEntry: IncidentOutboxEntry | undefined
   selectedIncident: Incident | undefined
+  storageError: Error | null
 }
 
 function IncidentWorkspace({
   incidents,
   isStale,
+  onCommand,
   onSelect,
+  queueError,
+  queueingIncidentId,
+  selectedEntry,
   selectedIncident,
+  storageError,
 }: IncidentWorkspaceProps) {
   return (
     <div className="incident-grid" data-stale={isStale}>
@@ -316,7 +435,14 @@ function IncidentWorkspace({
       </div>
 
       {selectedIncident ? (
-        <IncidentDetails incident={selectedIncident} />
+        <IncidentDetails
+          entry={selectedEntry}
+          incident={selectedIncident}
+          isQueueing={queueingIncidentId === selectedIncident.id}
+          onCommand={onCommand}
+          queueError={queueError}
+          storageError={storageError}
+        />
       ) : (
         <aside className="incident-details empty-state">
           Select a status with visible incidents.
@@ -362,7 +488,31 @@ function IncidentListItem({
   )
 }
 
-function IncidentDetails({ incident }: { incident: Incident }) {
+interface IncidentDetailsProps {
+  entry: IncidentOutboxEntry | undefined
+  incident: Incident
+  isQueueing: boolean
+  onCommand: (incident: Incident, type: 'acknowledge' | 'assign') => void
+  queueError: Error | null
+  storageError: Error | null
+}
+
+function IncidentDetails({
+  entry,
+  incident,
+  isQueueing,
+  onCommand,
+  queueError,
+  storageError,
+}: IncidentDetailsProps) {
+  const commandPending = entry !== undefined || isQueueing
+  const actionNote = getActionNote({
+    entry,
+    isQueueing,
+    queueError,
+    storageError,
+  })
+
   return (
     <aside
       className="incident-details"
@@ -395,16 +545,69 @@ function IncidentDetails({ incident }: { incident: Incident }) {
         </div>
       </dl>
       <div className="details-actions" aria-label="Incident actions">
-        <button type="button" disabled>
+        <button
+          disabled={
+            commandPending ||
+            incident.status !== 'open' ||
+            storageError !== null
+          }
+          onClick={() => onCommand(incident, 'acknowledge')}
+          type="button"
+        >
           Acknowledge
         </button>
-        <button type="button" disabled>
-          Assign
+        <button
+          disabled={
+            commandPending ||
+            incident.status === 'resolved' ||
+            storageError !== null
+          }
+          onClick={() => onCommand(incident, 'assign')}
+          type="button"
+        >
+          Assign to me
         </button>
       </div>
-      <p className="action-note">
-        Mutations unlock after idempotency and conflict handling are available.
+      <p className="action-note" role="status">
+        {actionNote}
       </p>
     </aside>
   )
+}
+
+function getActionNote({
+  entry,
+  isQueueing,
+  queueError,
+  storageError,
+}: {
+  entry: IncidentOutboxEntry | undefined
+  isQueueing: boolean
+  queueError: Error | null
+  storageError: Error | null
+}): string {
+  if (storageError) {
+    return 'Persistent command storage is unavailable.'
+  }
+  if (queueError) {
+    return queueError.message
+  }
+  if (isQueueing) {
+    return 'Saving the command before delivery.'
+  }
+  if (entry?.status === 'blocked') {
+    return entry.failure?.kind === 'conflict'
+      ? 'A newer incident version blocked this command.'
+      : 'The server rejected this queued command.'
+  }
+  if (entry?.status === 'sending') {
+    return 'Delivering the persisted command.'
+  }
+  if (entry?.failure?.kind === 'transient') {
+    return 'Delivery failed temporarily. The command remains queued.'
+  }
+  if (entry) {
+    return 'The optimistic change is saved and waiting for delivery.'
+  }
+  return 'Commands are persisted before delivery and guarded by incident version.'
 }

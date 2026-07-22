@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest'
 
 import { generatedAt, incidentFixtures } from '../../test/fixtures.js'
 import { server } from '../../test/server.js'
-import { fetchIncidentList, type IncidentApiError } from './incident-api.js'
+import {
+  fetchIncidentList,
+  sendIncidentCommand,
+  type IncidentApiError,
+} from './incident-api.js'
 
 describe('fetchIncidentList', () => {
   it('sends the selected filter and fault profile and validates the response', async () => {
@@ -131,5 +135,92 @@ describe('fetchIncidentList', () => {
     await expect(result).rejects.toThrow(
       'Incident API returned an invalid 502 body',
     )
+  })
+})
+
+describe('sendIncidentCommand', () => {
+  const command = {
+    commandId: '96721f40-ebcd-4b48-911b-f5609b39bff8',
+    expectedVersion: 3,
+    incidentId: 'inc-1042',
+    type: 'acknowledge',
+  } as const
+
+  it('sends idempotency and version preconditions with the command', async () => {
+    let receivedBody: unknown
+    server.use(
+      http.post('*/api/incidents/inc-1042/commands', async ({ request }) => {
+        receivedBody = await request.json()
+        expect(request.headers.get('idempotency-key')).toBe(command.commandId)
+        expect(request.headers.get('if-match')).toBe('"inc-1042-v3"')
+        expect(request.headers.get('x-lab-fault-profile')).toBe('normal')
+        return HttpResponse.json({
+          incident: {
+            ...incidentFixtures[0],
+            status: 'acknowledged',
+            version: 4,
+          },
+          replayed: false,
+        })
+      }),
+    )
+
+    const result = await sendIncidentCommand({
+      command,
+      faultProfile: 'normal',
+    })
+
+    expect(receivedBody).toEqual(command)
+    expect(result.incident).toMatchObject({
+      id: 'inc-1042',
+      status: 'acknowledged',
+      version: 4,
+    })
+  })
+
+  it('preserves authoritative conflict context', async () => {
+    server.use(
+      http.post('*/api/incidents/inc-1042/commands', () =>
+        HttpResponse.json(
+          {
+            type: 'https://react-resilience.dev/problems/version-conflict',
+            code: 'version-conflict',
+            title: 'Incident version changed',
+            status: 412,
+            detail: 'Reload before retrying.',
+            requestId: 'request-test-1',
+            currentIncident: {
+              ...incidentFixtures[0],
+              assignee: 'External operator',
+              version: 4,
+            },
+          },
+          { status: 412 },
+        ),
+      ),
+    )
+
+    const result = sendIncidentCommand({ command, faultProfile: 'conflict' })
+
+    await expect(result).rejects.toEqual(
+      expect.objectContaining<Partial<IncidentApiError>>({
+        problem: expect.objectContaining({
+          code: 'version-conflict',
+          currentIncident: expect.objectContaining({ version: 4 }) as object,
+        }) as IncidentApiError['problem'],
+      }),
+    )
+  })
+
+  it('rejects malformed command success payloads', async () => {
+    server.use(
+      http.post('*/api/incidents/inc-1042/commands', () =>
+        HttpResponse.json({ replayed: false }),
+      ),
+    )
+
+    const result = sendIncidentCommand({ command, faultProfile: 'normal' })
+
+    await expect(result).rejects.toMatchObject({ name: 'ZodError' })
   })
 })

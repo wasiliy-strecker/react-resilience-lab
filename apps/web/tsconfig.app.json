@@ -6,6 +6,12 @@
     "moduleResolution": "Bundler",
     "noEmit": true,
     "paths": {
+      "@react-resilience/command-outbox": [
+        "packages/command-outbox/src/index.ts"
+      ],
+      "@react-resilience/command-outbox/react": [
+        "packages/command-outbox/src/react.ts"
+      ],
       "@react-resilience/contracts": ["packages/contracts/src/index.ts"]
     },
     "jsx": "react-jsx",

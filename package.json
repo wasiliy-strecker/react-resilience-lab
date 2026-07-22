@@ -10,14 +10,15 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "pnpm build:contracts && pnpm --filter @react-resilience/fault-api build && pnpm --filter @react-resilience/web build",
+    "build": "pnpm build:packages && pnpm --filter @react-resilience/fault-api build && pnpm --filter @react-resilience/web build",
     "build:contracts": "pnpm --filter @react-resilience/contracts build",
-    "dev": "pnpm build:contracts && pnpm --parallel --filter @react-resilience/fault-api --filter @react-resilience/web dev",
+    "build:packages": "pnpm build:contracts && pnpm --filter @react-resilience/command-outbox build",
+    "dev": "pnpm build:packages && pnpm --parallel --filter @react-resilience/fault-api --filter @react-resilience/web dev",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
-    "test": "pnpm build:contracts && pnpm --recursive --if-present test",
-    "typecheck": "pnpm build:contracts && pnpm --recursive --if-present typecheck",
+    "test": "pnpm build:packages && pnpm --recursive --if-present test",
+    "typecheck": "pnpm build:packages && pnpm --recursive --if-present typecheck",
     "verify": "pnpm format:check && pnpm build:contracts && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {
