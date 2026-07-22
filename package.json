@@ -18,7 +18,7 @@
     "lint": "eslint .",
     "test": "pnpm build:contracts && pnpm --recursive --if-present test",
     "typecheck": "pnpm build:contracts && pnpm --recursive --if-present typecheck",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "verify": "pnpm format:check && pnpm build:contracts && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

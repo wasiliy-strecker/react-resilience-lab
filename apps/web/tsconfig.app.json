@@ -6,7 +6,7 @@
     "moduleResolution": "Bundler",
     "noEmit": true,
     "paths": {
-      "@react-resilience/contracts": ["../../packages/contracts/src/index.ts"]
+      "@react-resilience/contracts": ["packages/contracts/src/index.ts"]
     },
     "jsx": "react-jsx",
     "types": ["vite/client", "vitest/globals"]
