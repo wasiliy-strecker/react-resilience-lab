@@ -114,4 +114,22 @@ describe('fetchIncidentList', () => {
 
     await expect(result).rejects.toMatchObject({ name: 'ZodError' })
   })
+
+  it('rejects error payloads that do not match problem details', async () => {
+    server.use(
+      http.get('*/api/incidents', () =>
+        HttpResponse.json({ message: 'Proxy failed' }, { status: 502 }),
+      ),
+    )
+
+    const result = fetchIncidentList({
+      faultProfile: 'normal',
+      signal: new AbortController().signal,
+      status: 'all',
+    })
+
+    await expect(result).rejects.toThrow(
+      'Incident API returned an invalid 502 body',
+    )
+  })
 })

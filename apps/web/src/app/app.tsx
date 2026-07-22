@@ -15,7 +15,7 @@ export function App() {
         </a>
         <div className="environment-chip">
           <span className="environment-dot" aria-hidden="true" />
-          Baseline preview
+          Live failure lab
         </div>
       </header>
       <main>
