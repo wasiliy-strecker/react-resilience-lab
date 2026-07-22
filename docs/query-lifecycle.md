@@ -57,10 +57,11 @@ is rejected explicitly instead of being cast to a TypeScript type.
 | First request fails         | Show typed error detail and an explicit retry action         |
 | Valid response has no items | Show a stable empty list and detail state                    |
 
-Automatic retries are disabled for this lab stage. A hidden retry would make
-the deterministic flaky response difficult to inspect and could multiply load
-during an outage. Retry policy will be introduced only where the UI can explain
-the attempt and the server supplies usable retry semantics.
+Automatic retries remain disabled for reads. A hidden retry would make the
+deterministic flaky response difficult to inspect and could multiply load
+during an outage. Persisted commands have a separate policy: transient failures
+remain queued, `Retry-After` schedules another delivery attempt, and reconnect
+events trigger a flush.
 
 ## Why the list does not use Suspense
 

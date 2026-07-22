@@ -62,6 +62,11 @@ entry remains in IndexedDB. The browser `online` event triggers another flush.
 retried forever. Conflict problem details are persisted with the entry so the
 client can show and later resolve against the authoritative version.
 
+The recovery panel receives focus when a command becomes blocked. Keeping the
+server version discards the old intent. Retrying is available only after leaving
+the conflict profile and creates a new command ID against the displayed server
+version. The original command is never silently mutated.
+
 ## Crash boundaries
 
 | Interruption point                | Observable result after restart               |
@@ -87,3 +92,8 @@ but durable server-side idempotency is outside this lab milestone.
 - Blocked commands require an explicit user recovery decision. They are never
   silently rewritten to a new expected version.
 - IndexedDB durability depends on browser storage policy and available quota.
+
+The integrated Chromium suite proves that a persisted optimistic command
+survives a page reload while API traffic is unavailable, then leaves the outbox
+after an online-triggered replay. A second browser scenario exercises the full
+conflict and rebase path against the running Node.js API.
