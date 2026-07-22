@@ -1,0 +1,31 @@
+{
+  "name": "react-resilience-lab-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Production-minded React patterns for unreliable APIs and recoverable client state",
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@11.13.1",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "pnpm build:contracts && pnpm --filter @react-resilience/fault-api build && pnpm --filter @react-resilience/web build",
+    "build:contracts": "pnpm --filter @react-resilience/contracts build",
+    "dev": "pnpm build:contracts && pnpm --parallel --filter @react-resilience/fault-api --filter @react-resilience/web dev",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "test": "pnpm build:contracts && pnpm --recursive --if-present test",
+    "typecheck": "pnpm build:contracts && pnpm --recursive --if-present typecheck",
+    "verify": "pnpm format:check && pnpm build:contracts && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "eslint": "^9.39.2",
+    "eslint-plugin-react-hooks": "^6.1.1",
+    "prettier": "^3.9.5",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.64.0"
+  }
+}
