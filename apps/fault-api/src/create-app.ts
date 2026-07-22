@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import {
   apiProblemSchema,
+  faultProfileSchema,
   incidentCommandResultSchema,
   incidentCommandSchema,
   incidentListResponseSchema,
@@ -12,17 +13,29 @@ import express, { type Request, type Response } from 'express'
 
 import { IncidentCommandExecutor } from './command-executor.js'
 import { formatIncidentEtag } from './etag.js'
+import {
+  DeterministicFaultInjector,
+  type FaultDecision,
+  type FaultInjector,
+  type FaultOperation,
+} from './fault-injector.js'
 import { InMemoryIncidentStore } from './incident-store.js'
 import { createSeedIncidents } from './incidents.js'
 
 export interface AppDependencies {
+  faultInjector: FaultInjector
   now: () => Date
   requestId: () => string
+  sleep: (delayMs: number) => Promise<void>
 }
 
-const defaultDependencies: AppDependencies = {
+const defaultDependencies: Omit<AppDependencies, 'faultInjector'> = {
   now: () => new Date(),
   requestId: randomUUID,
+  sleep: (delayMs) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, delayMs)
+    }),
 }
 
 export function createApp(
@@ -30,6 +43,7 @@ export function createApp(
 ): express.Express {
   const dependencies: AppDependencies = {
     ...defaultDependencies,
+    faultInjector: new DeterministicFaultInjector(),
     ...overrides,
   }
   const store = new InMemoryIncidentStore(createSeedIncidents())
@@ -50,7 +64,17 @@ export function createApp(
     response.status(200).json({ status: 'ok' })
   })
 
-  app.get('/api/incidents', (request, response) => {
+  app.get('/api/incidents', async (request, response) => {
+    const boundary = await enterFaultBoundary(
+      request,
+      response,
+      'read',
+      dependencies,
+    )
+    if (!boundary.entered) {
+      return
+    }
+
     const parsedStatus = parseStatus(request.query['status'])
     if (!parsedStatus.success) {
       sendProblem(response, {
@@ -71,7 +95,17 @@ export function createApp(
     response.status(200).json(body)
   })
 
-  app.get('/api/incidents/:incidentId', (request, response) => {
+  app.get('/api/incidents/:incidentId', async (request, response) => {
+    const boundary = await enterFaultBoundary(
+      request,
+      response,
+      'read',
+      dependencies,
+    )
+    if (!boundary.entered) {
+      return
+    }
+
     const incidentId = request.params['incidentId']
     const incident = incidentId ? store.find(incidentId) : undefined
     if (!incident) {
@@ -92,7 +126,17 @@ export function createApp(
       .json(incident)
   })
 
-  app.post('/api/incidents/:incidentId/commands', (request, response) => {
+  app.post('/api/incidents/:incidentId/commands', async (request, response) => {
+    const boundary = await enterFaultBoundary(
+      request,
+      response,
+      'command',
+      dependencies,
+    )
+    if (!boundary.entered) {
+      return
+    }
+
     const body: unknown = request.body
     const parsedCommand = incidentCommandSchema.safeParse(body)
     if (!parsedCommand.success) {
@@ -162,6 +206,10 @@ export function createApp(
         requestId: getRequestId(request),
       })
       return
+    }
+
+    if (boundary.decision.forceConflict) {
+      store.simulateConcurrentUpdate(command.incidentId, dependencies.now())
     }
 
     const execution = executor.execute(command, dependencies.now())
@@ -264,6 +312,55 @@ export function createApp(
   )
 
   return app
+}
+
+type FaultBoundaryResult =
+  { entered: false } | { entered: true; decision: FaultDecision }
+
+async function enterFaultBoundary(
+  request: Request,
+  response: Response,
+  operation: FaultOperation,
+  dependencies: AppDependencies,
+): Promise<FaultBoundaryResult> {
+  const parsedProfile = faultProfileSchema.safeParse(
+    request.header('x-lab-fault-profile') ?? 'normal',
+  )
+  if (!parsedProfile.success) {
+    sendProblem(response, {
+      type: 'https://react-resilience.dev/problems/validation-failed',
+      code: 'validation-failed',
+      title: 'Invalid fault profile',
+      status: 400,
+      detail: 'X-Lab-Fault-Profile is not recognized.',
+      requestId: getRequestId(request),
+    })
+    return { entered: false }
+  }
+
+  const profile = parsedProfile.data
+  const decision = dependencies.faultInjector.next(profile, operation)
+  response.setHeader('x-lab-fault-profile', profile)
+  response.setHeader('x-lab-delay-ms', decision.delayMs.toString())
+  response.vary('x-lab-fault-profile')
+
+  await dependencies.sleep(decision.delayMs)
+
+  if (decision.reject) {
+    response.setHeader('retry-after', '1')
+    sendProblem(response, {
+      type: 'https://react-resilience.dev/problems/temporarily-unavailable',
+      code: 'temporarily-unavailable',
+      title: 'Fault profile rejected the request',
+      status: 503,
+      detail: 'The deterministic flaky profile rejected this attempt.',
+      requestId: getRequestId(request),
+      retryAfterMs: 1_000,
+    })
+    return { entered: false }
+  }
+
+  return { entered: true, decision }
 }
 
 function getRequestId(request: Request): string {

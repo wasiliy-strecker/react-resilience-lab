@@ -6,6 +6,7 @@ import {
   incidentCommandResultSchema,
   incidentListResponseSchema,
   incidentSchema,
+  type FaultProfile,
   type IncidentCommand,
 } from '@react-resilience/contracts'
 
@@ -14,6 +15,7 @@ import { createApp } from '../src/create-app.js'
 const dependencies = {
   now: () => new Date('2026-07-22T09:00:00.000Z'),
   requestId: () => 'request-test-1',
+  sleep: () => Promise.resolve(),
 }
 
 const acknowledgeCommand: IncidentCommand = {
@@ -51,6 +53,59 @@ describe('fault API read boundary', () => {
 
     expect(response.status).toBe(400)
     expect(apiProblemSchema.parse(response.body).code).toBe('validation-failed')
+  })
+
+  it('rejects unknown fault profiles before entering the boundary', async () => {
+    const response = await request(createApp(dependencies))
+      .get('/api/incidents')
+      .set('x-lab-fault-profile', 'chaos')
+
+    expect(response.status).toBe(400)
+    expect(apiProblemSchema.parse(response.body)).toMatchObject({
+      code: 'validation-failed',
+      title: 'Invalid fault profile',
+    })
+  })
+
+  it('makes configured latency observable without relying on wall time', async () => {
+    const delays: number[] = []
+    const app = createApp({
+      ...dependencies,
+      sleep: (delayMs) => {
+        delays.push(delayMs)
+        return Promise.resolve()
+      },
+    })
+
+    const response = await request(app)
+      .get('/api/incidents')
+      .set('x-lab-fault-profile', 'slow')
+
+    expect(response.status).toBe(200)
+    expect(delays).toEqual([850])
+    expect(response.headers).toMatchObject({
+      'x-lab-delay-ms': '850',
+      'x-lab-fault-profile': 'slow',
+      vary: 'x-lab-fault-profile',
+    })
+  })
+
+  it('fails every third flaky request and exposes retry semantics', async () => {
+    const app = createApp(dependencies)
+    const call = () =>
+      request(app).get('/api/incidents').set('x-lab-fault-profile', 'flaky')
+
+    expect((await call()).status).toBe(200)
+    expect((await call()).status).toBe(200)
+
+    const rejected = await call()
+    expect(rejected.status).toBe(503)
+    expect(rejected.headers['retry-after']).toBe('1')
+    expect(apiProblemSchema.parse(rejected.body)).toMatchObject({
+      code: 'temporarily-unavailable',
+      retryAfterMs: 1_000,
+    })
+    expect((await call()).status).toBe(200)
   })
 
   it('returns an entity tag with incident details', async () => {
@@ -109,6 +164,24 @@ describe('fault API command boundary', () => {
     expect(problem).toMatchObject({
       code: 'version-conflict',
       currentIncident: { version: 3 },
+    })
+  })
+
+  it('turns the conflict profile into a concurrent version change', async () => {
+    const response = await sendCommand(
+      createApp(dependencies),
+      acknowledgeCommand,
+      'conflict',
+    )
+
+    expect(response.status).toBe(412)
+    expect(response.headers['etag']).toBe('"inc-1042-v4"')
+    expect(apiProblemSchema.parse(response.body)).toMatchObject({
+      code: 'version-conflict',
+      currentIncident: {
+        assignee: 'External operator',
+        version: 4,
+      },
     })
   })
 
@@ -204,10 +277,16 @@ describe('fault API command boundary', () => {
 function sendCommand(
   app: ReturnType<typeof createApp>,
   command: IncidentCommand,
+  profile?: FaultProfile,
 ) {
-  return request(app)
+  const commandRequest = request(app)
     .post(`/api/incidents/${command.incidentId}/commands`)
     .set('idempotency-key', command.commandId)
     .set('if-match', `"${command.incidentId}-v${command.expectedVersion}"`)
-    .send(command)
+
+  if (profile) {
+    commandRequest.set('x-lab-fault-profile', profile)
+  }
+
+  return commandRequest.send(command)
 }
