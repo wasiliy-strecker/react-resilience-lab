@@ -6,11 +6,32 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {
-      '@react-resilience/contracts': fileURLToPath(
-        new URL('../../packages/contracts/src/index.ts', import.meta.url),
-      ),
-    },
+    alias: [
+      {
+        find: '@react-resilience/command-outbox/react',
+        replacement: fileURLToPath(
+          new URL(
+            '../../packages/command-outbox/src/react.ts',
+            import.meta.url,
+          ),
+        ),
+      },
+      {
+        find: '@react-resilience/command-outbox',
+        replacement: fileURLToPath(
+          new URL(
+            '../../packages/command-outbox/src/index.ts',
+            import.meta.url,
+          ),
+        ),
+      },
+      {
+        find: '@react-resilience/contracts',
+        replacement: fileURLToPath(
+          new URL('../../packages/contracts/src/index.ts', import.meta.url),
+        ),
+      },
+    ],
   },
   server: {
     host: '127.0.0.1',

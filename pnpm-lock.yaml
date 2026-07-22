@@ -60,6 +60,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@react-resilience/command-outbox':
+        specifier: workspace:*
+        version: link:../../packages/command-outbox
       '@react-resilience/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts

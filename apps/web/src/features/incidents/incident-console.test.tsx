@@ -1,12 +1,19 @@
 import { http, HttpResponse, delay } from 'msw'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
+
+import { MemoryOutboxStorage } from '@react-resilience/command-outbox'
+import type { ApiProblem } from '@react-resilience/contracts'
 
 import { generatedAt, incidentFixtures } from '../../test/fixtures.js'
 import { renderWithQueryClient } from '../../test/render.js'
 import { server } from '../../test/server.js'
 import { IncidentConsole } from './incident-console.js'
+import {
+  createIncidentOutbox,
+  type IncidentCommandEnvelope,
+} from './incident-outbox.js'
 
 describe('IncidentConsole', () => {
   it('loads and renders a validated remote incident snapshot', async () => {
@@ -209,6 +216,153 @@ describe('IncidentConsole', () => {
     expect(screen.getByLabelText('Current network profile')).toHaveTextContent(
       '850 ms stable latency',
     )
+  })
+
+  it('persists an optimistic acknowledgement while offline', async () => {
+    const user = userEvent.setup()
+    const { outbox } = renderWithQueryClient(<IncidentConsole />)
+    await screen.findByRole('button', {
+      name: /Checkout latency above threshold/,
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Acknowledge' }))
+
+    const details = screen.getByLabelText(
+      'Checkout latency above threshold details',
+    )
+    expect(await within(details).findByText('acknowledged')).toBeInTheDocument()
+    expect(within(details).getByText('Version 4')).toBeInTheDocument()
+    expect(
+      within(screen.getByLabelText('Command outbox status')).getByText('1'),
+    ).toBeInTheDocument()
+    expect(outbox.getSnapshot()[0]).toMatchObject({
+      partitionKey: 'inc-1042',
+      status: 'pending',
+    })
+  })
+
+  it('persists an optimistic assignment with its semantic command', async () => {
+    const user = userEvent.setup()
+    const { outbox } = renderWithQueryClient(<IncidentConsole />)
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Delayed webhook deliveries/,
+      }),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Assign to me' }))
+
+    expect(
+      await screen.findByText(
+        'The optimistic change is saved and waiting for delivery.',
+      ),
+    ).toBeInTheDocument()
+    expect(outbox.getSnapshot()[0]?.payload.command).toMatchObject({
+      assignee: 'On-call operator',
+      incidentId: 'inc-1038',
+      type: 'assign',
+    })
+  })
+
+  it('reconciles a delivered command and clears the persisted entry', async () => {
+    const user = userEvent.setup()
+    let receivedIdempotencyKey: string | null = null
+    server.use(
+      http.post('*/api/incidents/inc-1042/commands', ({ request }) => {
+        receivedIdempotencyKey = request.headers.get('idempotency-key')
+        return HttpResponse.json({
+          incident: {
+            ...incidentFixtures[0],
+            status: 'acknowledged',
+            version: 4,
+          },
+          replayed: false,
+        })
+      }),
+    )
+    const { outbox } = renderWithQueryClient(<IncidentConsole />, {
+      createOutbox: (queryClient) =>
+        createIncidentOutbox({
+          isOnline: () => true,
+          queryClient,
+          storage: new MemoryOutboxStorage<
+            IncidentCommandEnvelope,
+            ApiProblem
+          >(),
+        }),
+    })
+    await screen.findByRole('button', {
+      name: /Checkout latency above threshold/,
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Acknowledge' }))
+
+    await waitFor(() => {
+      expect(outbox.getSnapshot()).toEqual([])
+      expect(receivedIdempotencyKey).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      )
+    })
+    expect(
+      within(
+        screen.getByLabelText('Checkout latency above threshold details'),
+      ).getByText('acknowledged'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows authoritative state when a command is blocked by a conflict', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.post('*/api/incidents/inc-1042/commands', () =>
+        HttpResponse.json(
+          {
+            type: 'https://react-resilience.dev/problems/version-conflict',
+            code: 'version-conflict',
+            title: 'Incident version changed',
+            status: 412,
+            detail: 'Reload the current incident before retrying this command.',
+            requestId: 'request-test-1',
+            currentIncident: {
+              ...incidentFixtures[0],
+              assignee: 'External operator',
+              version: 4,
+            },
+          },
+          { status: 412 },
+        ),
+      ),
+    )
+    const { outbox } = renderWithQueryClient(<IncidentConsole />, {
+      createOutbox: (queryClient) =>
+        createIncidentOutbox({
+          isOnline: () => true,
+          queryClient,
+          storage: new MemoryOutboxStorage<
+            IncidentCommandEnvelope,
+            ApiProblem
+          >(),
+        }),
+    })
+    await screen.findByRole('button', {
+      name: /Checkout latency above threshold/,
+    })
+    await user.click(screen.getByRole('radio', { name: /^Conflict/ }))
+
+    await user.click(screen.getByRole('button', { name: 'Acknowledge' }))
+
+    await waitFor(() => {
+      expect(outbox.getSnapshot()[0]?.status).toBe('blocked')
+    })
+    const details = screen.getByLabelText(
+      'Checkout latency above threshold details',
+    )
+    expect(within(details).getByText('Version 4')).toBeInTheDocument()
+    expect(within(details).getByText('External operator')).toBeInTheDocument()
+    expect(
+      within(details).getByText(
+        'A newer incident version blocked this command.',
+      ),
+    ).toBeInTheDocument()
   })
 
   it('aborts a superseded filter request before stale data can win', async () => {
