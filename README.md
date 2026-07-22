@@ -29,18 +29,20 @@ them inside an unrelated product.
 
 ## Implemented behavior
 
-The current API milestone establishes:
+The current query milestone establishes:
 
 - runtime-validated incident and command contracts with Zod
 - conditional writes through `If-Match` and explicit incident versions
 - idempotent command replay through `Idempotency-Key`
 - deterministic normal, slow, flaky, and conflict profiles
 - typed problem details for validation, conflicts, and transient failures
-- a responsive React incident console with a stable baseline profile
+- a responsive React console driven by validated remote queries
+- `AbortSignal` propagation and query keys that isolate filters and profiles
+- explicit initial, background, stale-snapshot, empty, and error states
 - strict TypeScript, type-aware ESLint, coverage thresholds, and CI
 
-Remote queries, durable mutation replay, and client recovery semantics arrive in
-focused pull requests so their design remains reviewable.
+Durable mutation replay and command recovery semantics arrive in focused pull
+requests so their design remains reviewable.
 
 ## Quick start
 
@@ -61,7 +63,8 @@ Open `http://127.0.0.1:5173`. The supporting API listens on
 ```mermaid
 flowchart LR
     Browser[React incident console] --> Contracts[Shared runtime contracts]
-    Browser -. upcoming query and outbox adapters .-> API[Adversarial API]
+    Browser --> Query[TanStack Query boundary]
+    Query --> API[Adversarial API]
     API --> Contracts
     API --> Faults[Deterministic fault injector]
     API --> State[Versioned in-memory state]
@@ -89,6 +92,9 @@ version conflict rather than returning a hard-coded error.
 
 See [Failure model](docs/failure-model.md) for the profile matrix, command
 protocol, guarantees, and deliberate non-goals.
+
+See [Race-safe query lifecycle](docs/query-lifecycle.md) for cancellation,
+cache-key, runtime validation, and visible recovery decisions.
 
 ## Verification
 
