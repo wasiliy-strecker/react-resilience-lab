@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "paths": {
+      "@react-resilience/contracts": ["../../packages/contracts/src/index.ts"]
+    },
+    "jsx": "react-jsx",
+    "types": ["vite/client", "vitest/globals"]
+  },
+  "include": ["src"]
+}
